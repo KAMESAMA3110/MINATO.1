@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>マイアプリ</title>
+    <style>
+body {
+  font-family: Arial, sans-serif;
+  background-color: #f4f6f9;
+  padding: 20px;
+  display: flex;
+  justify-content: center;
+}
+.container {
+  background: white;
+  padding: 25px;
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+}
+#status {
+  margin: 15px 0;
+  font-weight: bold;
+  color: #27ae60;
+}
+#imagePreview {
+  max-width: 100%;
+  max-height: 200px;
+  margin: 15px 0;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+}
+#resultContainer {
+  margin-top: 20px;
+  text-align: left;
+  background: #f8f9fa;
+  padding: 15px;
+  border-radius: 6px;
+  border-left: 5px solid #3498db;
+}
+.result-item {
+  font-size: 16px;
+  margin: 8px 0;
+}
+#feedbackContainer {
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px dashed #ccc;
+  text-align: center;
+}
+.feedback-title {
+  font-size: 14px;
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+.btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  margin: 0 5px;
+  font-size: 13px;
+}
+.btn-success { background: #2ec4b6; color: white; }
+.btn-danger { background: #e71d36; color: white; }
+.btn-primary { background: #ff9f1c; color: white; width: 100%; margin-top: 5px;}
+input[type="text"] {
+  width: 90%;
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+    </style>
+</head>
+<body>
+<div class="container">
+  <h2>🧠爆速AI型学習ツール</h2>
+  <p>間違っていたら正しい答えを教えてあげると、AIがその場で高速学習します。</p>
+  
+  <input type="file" id="imageLoader" accept="image/*">
+  
+  <div id="status">🟢 準備完了：画像をアップロードしてください</div>
+  
+  <img id="imagePreview" alt="プレビュー" style="display:none;">
+  
+  <div id="resultContainer" style="display:none;">
+    <h3>🔍 AIの判別結果</h3>
+    <div id="analysisResults"></div>
+    
+    <div id="feedbackContainer">
+      <p class="feedback-title">💡 AIの答えは合っていましたか？</p>
+      <button id="btnCorrect" class="btn btn-success">合っている！</button>
+      <button id="btnWrong" class="btn btn-danger">間違っている</button>
+      
+      <div id="teachForm" style="display:none; margin-top: 15px;">
+        <p style="font-size: 13px; margin-bottom: 5px;">この画像は本当は何ですか？</p>
+        <input type="text" id="correctNameInput" placeholder="例：コーヒーカップ、愛犬">
+        <button id="btnSaveLearning" class="btn btn-primary">AIに覚えさせる</button>
+      </div>
+    </div>
+  </div>
+</div>
+    <script>
+let aiMemory = JSON.parse(localStorage.getItem('ai_image_memory')) || [];
+
+window.onload = function() {
+  const imageLoader = document.getElementById('imageLoader');
+  const imagePreview = document.getElementById('imagePreview');
+  const resultContainer = document.getElementById('resultContainer');
+  const analysisResults = document.getElementById('analysisResults');
+  const statusDiv = document.getElementById('status');
+  
+  const btnCorrect = document.getElementById('btnCorrect');
+  const btnWrong = document.getElementById('btnWrong');
+  const teachForm = document.getElementById('teachForm');
+  const btnSaveLearning = document.getElementById('btnSaveLearning');
+  const correctNameInput = document.getElementById('correctNameInput');
+
+  let currentImageData = { r: 0, g: 0, b: 0 };
+
+  imageLoader.addEventListener('change', function(e) {
+    const file = e.target.files[0]; // 単一ファイルを取得
+    if (!file) return;
+
+    statusDiv.innerText = "⏳ 爆速スキャン中...";
+    statusDiv.style.color = "#e67e22";
+    teachForm.style.display = 'none';
+    
+    const reader = new FileReader();
+    reader.onload = function(event) {
+      // プレビュー画像の表示
+      imagePreview.src = event.target.result;
+      imagePreview.style.display = 'inline-block';
+      
+      // 画像オブジェクトをメモリ上に作成して計算（タイミングバグを回避）
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = function() {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 10; 
+        canvas.height = 10;
+        ctx.drawImage(img, 0, 0, 10, 10);
+        
+        const imgData = ctx.getImageData(0, 0, 10, 10).data;
+        let rSum = 0, gSum = 0, bSum = 0;
+        
+        for (let i = 0; i < imgData.length; i += 4) {
+          rSum += imgData[i]; 
+          gSum += imgData[i+1]; 
+          bSum += imgData[i+2];
+        }
+        
+        currentImageData.r = Math.round(rSum / 100);
+        currentImageData.g = Math.round(gSum / 100);
+        currentImageData.b = Math.round(bSum / 100);
+        const brightness = (currentImageData.r + currentImageData.g + currentImageData.b) / 3;
+
+        // 過去の記憶から検索
+        let objectName = "";
+        let isLearned = false;
+        let minDifference = 40;
+
+        aiMemory.forEach(memory => {
+          const diff = Math.sqrt(
+            Math.pow(memory.r - currentImageData.r, 2) +
+            Math.pow(memory.g - currentImageData.g, 2) +
+            Math.pow(memory.b - currentImageData.b, 2)
+          );
+          if (diff < minDifference) {
+            minDifference = diff;
+            objectName = memory.label;
+            isLearned = true;
+          }
+        });
+
+        // 基本ルール
+        if (!isLearned) {
+          if (currentImageData.r > 150 && currentImageData.g > 100 && currentImageData.b > 80 && (currentImageData.r - currentImageData.b) > 30) {
+            objectName = "人（顔・肌色系のもの）";
+          } else if (currentImageData.g > currentImageData.r && currentImageData.g > currentImageData.b) {
+            objectName = "植物や自然（緑色のもの）";
+          } else if (currentImageData.b > currentImageData.r && currentImageData.b > currentImageData.g && brightness > 80) {
+            objectName = "空、海、または青いアイテム";
+          } else if (brightness > 210) {
+            objectName = "ノート・白い紙、または白い物";
+          } else if (brightness < 50) {
+            objectName = "黒い機器、カバン、または夜景";
+          } else {
+            objectName = "日常の道具、または家具";
+          }
+        }
+
+        // 文字列の更新と結果表示（確実に実行されます）
+        statusDiv.innerText = "🟢 判別完了！";
+        statusDiv.style.color = "#27ae60";
+        resultContainer.style.display = 'block';
+        
+        analysisResults.innerHTML = `
+          <div class="result-item"><strong>AIの予測:</strong> <span style="color:#e74c3c; font-weight:bold;">${objectName}</span></div>
+          <div class="result-item" style="font-size:12px; color:#7f8c8d;">
+            ${isLearned ? '✨ 過去の学習データから判別しました！' : '⚙️ 初期の基本ルールから推測しました。'}
+          </div>
+        `;
+      };
+    };
+    reader.readAsDataURL(file);
+  });
+
+  btnCorrect.addEventListener('click', () => { alert('正解を学習しました！'); });
+  btnWrong.addEventListener('click', () => { teachForm.style.display = 'block'; correctNameInput.focus(); });
+
+  btnSaveLearning.addEventListener('click', () => {
+    const trueLabel = correctNameInput.value.trim();
+    if (!trueLabel) return alert('答えを入力してください。');
+
+    aiMemory.push({
+      r: currentImageData.r,
+      g: currentImageData.g,
+      b: currentImageData.b,
+      label: trueLabel
+    });
+
+    localStorage.setItem('ai_image_memory', JSON.stringify(aiMemory));
+    alert(`「${trueLabel}」として記憶しました！`);
+    
+    teachForm.style.display = 'none';
+    analysisResults.innerHTML = `
+      <div class="result-item"><strong>AIの予測:</strong> <span style="color:#e74c3c; font-weight:bold;">${trueLabel}</span></div>
+      <div class="result-item" style="font-size:12px; color:#27ae60;">✨ 学習が完了しました！</div>
+    `;
+  });
+};
+    </script>
+</body>
+</html>
